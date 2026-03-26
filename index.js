@@ -155,3 +155,16 @@ client.on('message_create', async (msg) => {
 
 client.initialize();
 
+// Setup a simple Express App to accept HTTP pings unconditionally.
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+    res.send('Ledger Bot is awake and running!');
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🌐 Express server is listening on port ${PORT} to keep the bot alive!`);
+});
+

@@ -1,17 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: whatsapp-bot
     env: docker
     dockerfilePath: ./Dockerfile
-    
-    # We mount a 1GB disk to ensure your balance.json and WhatsApp login
-    # session are never deleted when Render restarts the container.
-    disk:
-      name: bot-storage
-      mountPath: /data
-      sizeGB: 1
-    
-    # We tell the bot to save files into that disk
-    envVars:
-      - key: DATA_DIR
-        value: /data
