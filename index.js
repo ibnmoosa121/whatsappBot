@@ -44,12 +44,16 @@ const client = new Client({
     }
 });
 
+let currentQR = '';
+
 client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
-    console.log('Scan the QR code above with WhatsApp!');
+    currentQR = qr;
+    console.log('Scan the QR code above with WhatsApp, OR open your Railway Public Networking URL to scan it visually!');
 });
 
 client.on('ready', () => {
+    currentQR = '';
     console.log('Ledger Bot is online!');
 });
 
@@ -160,7 +164,22 @@ const express = require('express');
 const app = express();
 
 app.get('/', (req, res) => {
-    res.send('Ledger Bot is awake and running!');
+    if (currentQR) {
+        res.send(`
+            <html>
+            <body style="display:flex; justify-content:center; align-items:center; height:100vh; font-family: sans-serif; background-color: #f0f2f5; margin: 0;">
+                <div style="text-align:center; padding: 40px; background: white; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                    <h2 style="margin-top: 0; color: #128c7e;">WhatsApp Login</h2>
+                    <p style="color: #666; margin-bottom: 25px;">Scan this QR Code using the WhatsApp app<br/><b>(Settings > Linked Devices > Link a Device)</b></p>
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(currentQR)}" alt="QR Code" style="border: 1px solid #ddd; padding: 10px; border-radius: 5px;" />
+                    <p style="color: #888; margin-top: 25px; font-size: 14px;"><em>Code not scanning or expired? Just refresh this page!</em></p>
+                </div>
+            </body>
+            </html>
+        `);
+    } else {
+        res.send('Ledger Bot is awake and running!');
+    }
 });
 
 const PORT = process.env.PORT || 3000;
