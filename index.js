@@ -49,7 +49,10 @@ let currentQR = '';
 client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
     currentQR = qr;
-    console.log('Scan the QR code above with WhatsApp, OR open your Railway Public Networking URL to scan it visually!');
+    console.log('\n=============================================');
+    console.log('🔗 CLICK THIS LINK TO SEE YOUR QR CODE IMG:');
+    console.log(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`);
+    console.log('=============================================\n');
 });
 
 client.on('ready', () => {
