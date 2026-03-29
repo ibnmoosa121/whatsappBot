@@ -69,6 +69,18 @@ client.on('ready', () => {
     console.log('Ledger Bot is online!');
 });
 
+// Auto-healing: If connection drops, crash the app so Railway auto-reboots and reconnects it fresh
+client.on('disconnected', (reason) => {
+    console.log('❌ WhatsApp Disconnected:', reason);
+    console.log('Rebooting container to reconnect...');
+    process.exit(1); 
+});
+
+client.on('auth_failure', msg => {
+    console.error('❌ Authentication failed:', msg);
+    process.exit(1);
+});
+
 client.on('message_create', async (msg) => {
     // When YOU send a message, the chat ID is in msg.to. Otherwise, it's msg.from.
     const chatId = msg.fromMe ? msg.to : msg.from;
