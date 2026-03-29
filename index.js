@@ -67,9 +67,11 @@ client.on('message_create', async (msg) => {
     console.log(`📨 [${isGroup ? 'Group' : 'DM'}] Chat ID: ${chatId}`);
 
     const text = msg.body.trim();
+    console.log(`🔍 Received text: "${text}"`);
 
     // Regex to match +100 or -50, with an optional 3 or 4 letter reference (e.g., +50000 AMR)
     const match = text.match(/^([\+\-])\s?(\d+(\.\d+)?)(?:\s+([a-zA-Z]{3,4}))?$/);
+    console.log(`🔍 Did it match the math rule? ${match ? 'YES' : 'NO'}`);
     
     // Regex to match "rate 3.85"
     const rateMatch = text.match(/^rate\s+(\d+(\.\d+)?)$/i);
