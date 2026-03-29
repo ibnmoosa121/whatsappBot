@@ -92,6 +92,9 @@ client.on('message_create', async (msg) => {
     
     // Regex to match "rate 3.85"
     const rateMatch = text.match(/^rate\s+(\d+(\.\d+)?)$/i);
+    
+    // Regex to match "edit 1500" or "edit -500"
+    const editMatch = text.match(/^edit\s+(-?\d+(\.\d+)?)$/i);
 
     if (rateMatch) {
         const newRate = parseFloat(rateMatch[1]);
@@ -102,6 +105,20 @@ client.on('message_create', async (msg) => {
             `💱 *New Rate:* ${newRate}\n` +
             `━━━━━━━━━━━━━━\n` +
             `💡 _All future deposits will use this rate._`
+        );
+    } else if (editMatch) {
+        const newBalance = parseFloat(editMatch[1]);
+        balances[chatId] = Math.round(newBalance * 100) / 100;
+        saveBalances();
+
+        const isSpecialGroup = SPECIAL_GROUPS.includes(chatId);
+        const currency = isSpecialGroup ? ' SAR' : ' SAR';
+
+        msg.reply(
+            `🤖 *Balance Manually Edited*\n\n` +
+            `⚠️ *Admin Override Applied*\n` +
+            `━━━━━━━━━━━━━━\n` +
+            `💰 *New Fixed Balance:* ${balances[chatId]}${currency}`
         );
     } else if (match) {
         const operator = match[1];
