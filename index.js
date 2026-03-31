@@ -63,6 +63,26 @@ client.on('qr', (qr) => {
 client.on('ready', () => {
     currentQR = '';
     console.log('Ledger Bot is online!');
+
+    // 1. Aggressive Watchdog: Pings WhatsApp servers every 5 minutes
+    setInterval(async () => {
+        try {
+            const state = await client.getState();
+            if (state && state !== 'CONNECTED') {
+                console.log('❌ Watchdog detected broken connection:', state);
+                process.exit(1); 
+            }
+        } catch (err) {
+            console.error('❌ Watchdog crashed! Browser silently froze. Rebooting...', err);
+            process.exit(1);
+        }
+    }, 5 * 60 * 1000); 
+
+    // 2. Memory Wipe: Reboot gracefully every 12 hours exactly
+    setTimeout(() => {
+        console.log('🔄 Performing 12-hour scheduled memory clear...');
+        process.exit(1);
+    }, 12 * 60 * 60 * 1000);
 });
 
 // Auto-healing: If connection drops, crash the app so Railway auto-reboots and reconnects it fresh
