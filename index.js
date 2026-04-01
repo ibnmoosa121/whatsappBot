@@ -124,6 +124,38 @@ client.on('message_create', async (msg) => {
     const isMathCommand = mathMatch && (mathMatch[1] !== '' || mathMatch[4] !== undefined);
     console.log(`🔍 Did it match the NEW smart math rule? ${isMathCommand ? 'YES' : 'NO'}`);
 
+    // Helper to send threaded balance updates and pin them natively to the chat
+    async function sendAndPinBalance(targetChatId, triggerMsg, responseText) {
+        const lastMsgId = balances['_lastMsg_' + targetChatId];
+        let sentMsg;
+        try {
+            if (lastMsgId) {
+                // Reply to the strictly previous balance message to magically chain the entire timeline
+                sentMsg = await client.sendMessage(targetChatId, responseText, { quotedMessageId: lastMsgId });
+            } else {
+                // First time: just reply to the user's math command normally
+                sentMsg = await triggerMsg.reply(responseText);
+            }
+        } catch (e) {
+            console.error("Timeline broken because ancient message was deleted. Rebuilding thread...", e.message);
+            sentMsg = await triggerMsg.reply(responseText);
+        }
+
+        if (sentMsg && sentMsg.id) {
+            balances['_lastMsg_' + targetChatId] = sentMsg.id._serialized;
+            saveBalances();
+
+            // Attempt to Pin the message for 30 days (2592000 seconds) inside WhatsApp inherently
+            try {
+                if (typeof sentMsg.pin === 'function') {
+                    await sentMsg.pin(2592000);
+                }
+            } catch (pinErr) {
+                console.log("Could not vividly pin message (bot might not be group admin!):", pinErr.message);
+            }
+        }
+    }
+
     if (rateMatch) {
         const newRate = parseFloat(rateMatch[1]);
         balances['_rate'] = newRate;
@@ -139,14 +171,11 @@ client.on('message_create', async (msg) => {
         balances[chatId] = Math.round(newBalance * 100) / 100;
         saveBalances();
 
-        const isSpecialGroup = SPECIAL_GROUPS.includes(chatId);
-        const currency = isSpecialGroup ? ' SAR' : ' SAR';
-
-        msg.reply(
+        await sendAndPinBalance(chatId, msg, 
             `🤖 *Balance Manually Edited*\n\n` +
             `⚠️ *Admin Override Applied*\n` +
             `━━━━━━━━━━━━━━\n` +
-            `💰 *New Fixed Balance:* ${balances[chatId]}${currency}`
+            `💰 *New Fixed Balance:* ${balances[chatId]} SAR`
         );
     } else if (isMathCommand) {
         // Evaluate the inline math dynamically to pure SAR
@@ -174,7 +203,7 @@ client.on('message_create', async (msg) => {
             balances[chatId] = Math.round(((balances[chatId] || 0) + calculatedAmount) * 100) / 100;
             saveBalances();
 
-            msg.reply(
+            await sendAndPinBalance(chatId, msg, 
                 `🤖 *Deposit Received*\n\n` +
                 (mathOp ? `🧮 *Calculation:* ${mathString}\n` : '') +
                 `➕ *SAR Added:* ${calculatedAmount}\n` +
@@ -186,7 +215,7 @@ client.on('message_create', async (msg) => {
             balances[chatId] = Math.round(((balances[chatId] || 0) - calculatedAmount) * 100) / 100;
             saveBalances();
 
-            msg.reply(
+            await sendAndPinBalance(chatId, msg, 
                 `🤖 *Payment Sent*\n\n` +
                 (mathOp ? `🧮 *Calculation:* ${mathString}\n` : '') +
                 `🔻 *SAR Deducted:* ${calculatedAmount}\n` +
@@ -197,14 +226,10 @@ client.on('message_create', async (msg) => {
         }
     } else if (text.toLowerCase() === 'balance') {
         const currentBalance = balances[chatId] || 0;
-        const currentRate = balances['_rate'] || 3.82;
-        const isSpecialGroup = SPECIAL_GROUPS.includes(chatId);
-        const currency = isSpecialGroup ? ' SAR' : ' SAR';
 
-        msg.reply(
+        await sendAndPinBalance(chatId, msg, 
             `🤖 *Ledger Status*\n\n` +
-            `📊 *Total Balance:* ${currentBalance}${currency}\n` +
-            (isSpecialGroup ? `💱 *Current Rate:* ${currentRate}\n` : '') +
+            `📊 *Total Balance:* ${currentBalance} SAR\n` +
             `━━━━━━━━━━━━━━`
         );
     }
