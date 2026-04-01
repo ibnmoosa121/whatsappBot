@@ -7,8 +7,8 @@ const path = require('path');
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const BALANCE_FILE = path.join(DATA_DIR, 'balance.json');
 const SPECIAL_GROUPS = [
-    '120363424806790533@g.us',
-    '120363315388298656@g.us'
+    '120363424806790533@g.us', // Name: "Main Ledger Group" (Update this name as needed)
+    '120363315388298656@g.us'  // Name: "Secondary Ledger Group" (Update this name as needed)
 ];
 
 // Persistent ledger balances (loaded from file if it exists)
