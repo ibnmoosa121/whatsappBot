@@ -7,8 +7,8 @@ const path = require('path');
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const BALANCE_FILE = path.join(DATA_DIR, 'balance.json');
 const SPECIAL_GROUPS = [
-    '120363424806790533@g.us', // Name: "Main Ledger Group" (Update this name as needed)
-    '120363315388298656@g.us'  // Name: "Secondary Ledger Group" (Update this name as needed)
+    '120363424806790533@g.us', // Name: "Test"
+    '120363315388298656@g.us'  // Name: "SBT"
 ];
 
 // Persistent ledger balances (loaded from file if it exists)
@@ -18,7 +18,7 @@ if (fs.existsSync(BALANCE_FILE)) {
     try {
         const data = fs.readFileSync(BALANCE_FILE, 'utf8');
         balances = JSON.parse(data);
-        
+
         // Migrate old global balance format if necessary (Optional)
         if (balances.balance !== undefined && Object.keys(balances).length === 1) {
             balances = {}; // Reset or just ignore the old format
@@ -41,7 +41,7 @@ const client = new Client({
     authStrategy: new LocalAuth({ dataPath: DATA_DIR }), // Saves login session to the persistent directory
     puppeteer: {
         args: [
-            '--no-sandbox', 
+            '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu'
@@ -70,13 +70,13 @@ client.on('ready', () => {
             const state = await client.getState();
             if (state && state !== 'CONNECTED') {
                 console.log('❌ Watchdog detected broken connection:', state);
-                process.exit(1); 
+                process.exit(1);
             }
         } catch (err) {
             console.error('❌ Watchdog crashed! Browser silently froze. Rebooting...', err);
             process.exit(1);
         }
-    }, 5 * 60 * 1000); 
+    }, 5 * 60 * 1000);
 
     // 2. Memory Wipe: Reboot gracefully every 12 hours exactly
     setTimeout(() => {
@@ -89,7 +89,7 @@ client.on('ready', () => {
 client.on('disconnected', (reason) => {
     console.log('❌ WhatsApp Disconnected:', reason);
     console.log('Rebooting container to reconnect...');
-    process.exit(1); 
+    process.exit(1);
 });
 
 client.on('auth_failure', msg => {
@@ -106,15 +106,23 @@ client.on('message_create', async (msg) => {
     const text = msg.body.trim();
     console.log(`🔍 Received text: "${text}"`);
 
-    // Regex to match +100 or -50, with an optional 3 or 4 letter reference (e.g., +50000 AMR)
-    const match = text.match(/^([\+\-])\s?(\d+(\.\d+)?)(?:\s+([a-zA-Z]{3,4}))?$/);
-    console.log(`🔍 Did it match the math rule? ${match ? 'YES' : 'NO'}`);
-    
+    // Clean out commas so 1,500 becomes 1500 automatically before processing!
+    const cleanText = text.replace(/,/g, '');
+
     // Regex to match "rate 3.85"
-    const rateMatch = text.match(/^rate\s+(\d+(\.\d+)?)$/i);
+    const rateMatch = cleanText.match(/^rate\s+(\d+(\.\d+)?)$/i);
     
     // Regex to match "edit 1500" or "edit -500"
-    const editMatch = text.match(/^edit\s+(-?\d+(\.\d+)?)$/i);
+    const editMatch = cleanText.match(/^edit\s+(-?\d+(\.\d+)?)$/i);
+    
+    // Super Smart Math Matcher:
+    // Matches sign (+/-), number, optional operator (* or /), second number, and optional reference string (AMR)
+    // Works with: "+100" | "100 * 3.82" | "+5000 / 3.82" | "-50 AMR"
+    const mathMatch = cleanText.match(/^([\+\-]?)?\s*(\d+(\.\d+)?)(?:\s*([\*\/])\s*(\d+(\.\d+)?))?(?:\s+([a-zA-Z]{3,4}))?$/);
+    
+    // Ensure the user typed an actual operator or sign (so accidentally typing "100" alone doesn't trigger a deposit)
+    const isMathCommand = mathMatch && (mathMatch[1] !== '' || mathMatch[4] !== undefined);
+    console.log(`🔍 Did it match the NEW smart math rule? ${isMathCommand ? 'YES' : 'NO'}`);
 
     if (rateMatch) {
         const newRate = parseFloat(rateMatch[1]);
@@ -140,66 +148,52 @@ client.on('message_create', async (msg) => {
             `━━━━━━━━━━━━━━\n` +
             `💰 *New Fixed Balance:* ${balances[chatId]}${currency}`
         );
-    } else if (match) {
-        const operator = match[1];
-        const rawAmount = parseFloat(match[2]);
-        const reference = match[4] ? match[4].toUpperCase() : null;
+    } else if (isMathCommand) {
+        // Evaluate the inline math dynamically to pure SAR
+        const signStr = mathMatch[1] || '+'; // Default to '+' if they wrote an equation like "100 * 3.82"
+        const num1 = parseFloat(mathMatch[2]);
+        const mathOp = mathMatch[4];
+        const num2 = mathMatch[5] ? parseFloat(mathMatch[5]) : null;
+        const reference = mathMatch[7] ? mathMatch[7].toUpperCase() : null;
 
-        // Check if we are in the special group
-        const isSpecialGroup = SPECIAL_GROUPS.includes(chatId);
-        const rate = balances['_rate'] || 3.82;
+        let calculatedAmount = num1;
+        let mathString = `${num1}`;
+        
+        if (mathOp === '*') {
+            calculatedAmount = num1 * num2;
+            mathString = `${num1} × ${num2}`;
+        } else if (mathOp === '/') {
+            calculatedAmount = num1 / num2;
+            mathString = `${num1} ÷ ${num2}`;
+        }
 
-        if (operator === '+') {
-            // + Means USDT is being paid. Convert it and add to SAR balance.
-            const multiplier = isSpecialGroup ? rate : 1;
-            const convertedAmount = Math.round((rawAmount * multiplier) * 100) / 100;
-            
-            balances[chatId] = Math.round(((balances[chatId] || 0) + convertedAmount) * 100) / 100;
+        // Round strictly to 2 decimal places
+        calculatedAmount = Math.round(calculatedAmount * 100) / 100;
+
+        if (signStr === '+') {
+            balances[chatId] = Math.round(((balances[chatId] || 0) + calculatedAmount) * 100) / 100;
             saveBalances();
 
-            if (isSpecialGroup) {
-                msg.reply(
-                    `🤖 *Deposit Received*\n\n` +
-                    `📥 *USDT Sent:* ${rawAmount}\n` +
-                    `💱 *Rate:* ${rate}\n` +
-                    `➕ *SAR Added:* ${convertedAmount}\n` +
-                    (reference ? `📝 *Ref:* ${reference}\n` : '') +
-                    `━━━━━━━━━━━━━━\n` +
-                    `💰 *Current Balance:* ${balances[chatId]} SAR`
-                );
-            } else {
-                msg.reply(
-                    `🤖 *Deposit Received*\n\n` +
-                    `📥 *SAR Received:* ${convertedAmount}\n` +
-                    (reference ? `📝 *Ref:* ${reference}\n` : '') +
-                    `━━━━━━━━━━━━━━\n` +
-                    `💰 *Current Balance:* ${balances[chatId]} SAR`
-                );
-            }
-        } else if (operator === '-') {
-            // - Means SAR is being paid out. Deduct exactly the stated amount.
-            const deductAmount = rawAmount;
-            
-            balances[chatId] = Math.round(((balances[chatId] || 0) - deductAmount) * 100) / 100;
+            msg.reply(
+                `🤖 *Deposit Received*\n\n` +
+                (mathOp ? `🧮 *Calculation:* ${mathString}\n` : '') +
+                `➕ *SAR Added:* ${calculatedAmount}\n` +
+                (reference ? `📝 *Ref:* ${reference}\n` : '') +
+                `━━━━━━━━━━━━━━\n` +
+                `💰 *Current Balance:* ${balances[chatId]} SAR`
+            );
+        } else if (signStr === '-') {
+            balances[chatId] = Math.round(((balances[chatId] || 0) - calculatedAmount) * 100) / 100;
             saveBalances();
 
-            if (isSpecialGroup) {
-                msg.reply(
-                    `🤖 *Payment Sent*\n\n` +
-                    `🔻 *SAR Deducted:* ${deductAmount}\n` +
-                    (reference ? `📝 *Ref:* ${reference}\n` : '') +
-                    `━━━━━━━━━━━━━━\n` +
-                    `💰 *Current Balance:* ${balances[chatId]} SAR`
-                );
-            } else {
-                msg.reply(
-                    `🤖 *Payment Sent*\n\n` +
-                    `🔻 *SAR Paid:* ${deductAmount}\n` +
-                    (reference ? `📝 *Ref:* ${reference}\n` : '') +
-                    `━━━━━━━━━━━━━━\n` +
-                    `💰 *Current Balance:* ${balances[chatId]} SAR`
-                );
-            }
+            msg.reply(
+                `🤖 *Payment Sent*\n\n` +
+                (mathOp ? `🧮 *Calculation:* ${mathString}\n` : '') +
+                `🔻 *SAR Deducted:* ${calculatedAmount}\n` +
+                (reference ? `📝 *Ref:* ${reference}\n` : '') +
+                `━━━━━━━━━━━━━━\n` +
+                `💰 *Current Balance:* ${balances[chatId]} SAR`
+            );
         }
     } else if (text.toLowerCase() === 'balance') {
         const currentBalance = balances[chatId] || 0;
