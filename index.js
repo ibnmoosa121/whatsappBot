@@ -70,18 +70,18 @@ client.on('ready', () => {
             const state = await client.getState();
             if (state && state !== 'CONNECTED') {
                 console.log('❌ Watchdog detected broken connection:', state);
-                process.exit(1);
+                process.exit(0);
             }
         } catch (err) {
             console.error('❌ Watchdog crashed! Browser silently froze. Rebooting...', err);
-            process.exit(1);
+            process.exit(0);
         }
     }, 5 * 60 * 1000);
 
     // 2. Memory Wipe: Reboot gracefully every 12 hours exactly
     setTimeout(() => {
         console.log('🔄 Performing 12-hour scheduled memory clear...');
-        process.exit(1);
+        process.exit(0);
     }, 12 * 60 * 60 * 1000);
 });
 
@@ -89,12 +89,12 @@ client.on('ready', () => {
 client.on('disconnected', (reason) => {
     console.log('❌ WhatsApp Disconnected:', reason);
     console.log('Rebooting container to reconnect...');
-    process.exit(1);
+    process.exit(0);
 });
 
 client.on('auth_failure', msg => {
     console.error('❌ Authentication failed:', msg);
-    process.exit(1);
+    process.exit(0);
 });
 
 client.on('message_create', async (msg) => {
