@@ -103,8 +103,14 @@ client.on('message_create', async (msg) => {
     const isGroup = chatId.includes('@g.us');
     console.log(`📨 [${isGroup ? 'Group' : 'DM'}] Chat ID: ${chatId}`);
 
-    const text = msg.body.trim();
-    console.log(`🔍 Received text: "${text}"`);
+    const originalText = msg.body.trim();
+    if (!originalText.startsWith('/')) {
+        return; // Ignore regular conversation
+    }
+
+    // Remove the leading '/' so the rest of the logic remains unchanged
+    const text = originalText.substring(1).trim();
+    console.log(`🔍 Received command: "/${text}"`);
 
     // Clean out commas so 1,500 becomes 1500 automatically before processing!
     const cleanText = text.replace(/,/g, '');
@@ -124,35 +130,13 @@ client.on('message_create', async (msg) => {
     const isMathCommand = mathMatch && (mathMatch[1] !== '' || mathMatch[4] !== undefined);
     console.log(`🔍 Did it match the NEW smart math rule? ${isMathCommand ? 'YES' : 'NO'}`);
 
-    // Helper to send threaded balance updates and pin them natively to the chat
-    async function sendAndPinBalance(targetChatId, triggerMsg, responseText) {
-        const lastMsgId = balances['_lastMsg_' + targetChatId];
-        let sentMsg;
+    // Helper to send balance updates
+    async function sendBalanceUpdate(targetChatId, triggerMsg, responseText) {
         try {
-            if (lastMsgId) {
-                // Reply to the strictly previous balance message to magically chain the entire timeline
-                sentMsg = await client.sendMessage(targetChatId, responseText, { quotedMessageId: lastMsgId });
-            } else {
-                // First time: just reply to the user's math command normally
-                sentMsg = await triggerMsg.reply(responseText);
-            }
+            // Send as a standalone message in the chat
+            await client.sendMessage(targetChatId, responseText);
         } catch (e) {
-            console.error("Timeline broken because ancient message was deleted. Rebuilding thread...", e.message);
-            sentMsg = await triggerMsg.reply(responseText);
-        }
-
-        if (sentMsg && sentMsg.id) {
-            balances['_lastMsg_' + targetChatId] = sentMsg.id._serialized;
-            saveBalances();
-
-            // Attempt to Pin the message for 30 days (2592000 seconds) inside WhatsApp inherently
-            try {
-                if (typeof sentMsg.pin === 'function') {
-                    await sentMsg.pin(2592000);
-                }
-            } catch (pinErr) {
-                console.log("Could not vividly pin message (bot might not be group admin!):", pinErr.message);
-            }
+            console.error("Failed to reply with balance update...", e.message);
         }
     }
 
@@ -160,23 +144,13 @@ client.on('message_create', async (msg) => {
         const newRate = parseFloat(rateMatch[1]);
         balances['_rate'] = newRate;
         saveBalances();
-        msg.reply(
-            `🤖 *Rate Updated*\n\n` +
-            `💱 *New Rate:* ${newRate}\n` +
-            `━━━━━━━━━━━━━━\n` +
-            `💡 _All future deposits will use this rate._`
-        );
+        msg.reply(`✅ *Rate Updated:* ${newRate}`);
     } else if (editMatch) {
         const newBalance = parseFloat(editMatch[1]);
         balances[chatId] = Math.round(newBalance * 100) / 100;
         saveBalances();
 
-        await sendAndPinBalance(chatId, msg, 
-            `🤖 *Balance Manually Edited*\n\n` +
-            `⚠️ *Admin Override Applied*\n` +
-            `━━━━━━━━━━━━━━\n` +
-            `💰 *New Fixed Balance:* ${balances[chatId]} SAR`
-        );
+        await sendBalanceUpdate(chatId, msg, `⚠️ *Balance Overridden:* ${balances[chatId]} SAR`);
     } else if (isMathCommand) {
         // Evaluate the inline math dynamically to pure SAR
         const signStr = mathMatch[1] || '+'; // Default to '+' if they wrote an equation like "100 * 3.82"
@@ -199,39 +173,31 @@ client.on('message_create', async (msg) => {
         // Round strictly to 2 decimal places
         calculatedAmount = Math.round(calculatedAmount * 100) / 100;
 
+        const prevBalance = balances[chatId] || 0;
+
         if (signStr === '+') {
-            balances[chatId] = Math.round(((balances[chatId] || 0) + calculatedAmount) * 100) / 100;
+            balances[chatId] = Math.round((prevBalance + calculatedAmount) * 100) / 100;
             saveBalances();
 
-            await sendAndPinBalance(chatId, msg, 
-                `🤖 *Deposit Received*\n\n` +
-                (mathOp ? `🧮 *Calculation:* ${mathString}\n` : '') +
-                `➕ *SAR Added:* ${calculatedAmount}\n` +
-                (reference ? `📝 *Ref:* ${reference}\n` : '') +
-                `━━━━━━━━━━━━━━\n` +
-                `💰 *Current Balance:* ${balances[chatId]} SAR`
+            await sendBalanceUpdate(chatId, msg, 
+                `*Prev:* ${prevBalance} SAR\n` +
+                `➕ *Add:* ${calculatedAmount} SAR${mathOp ? ` (${mathString})` : ''}${reference ? ` [${reference}]` : ''}\n` +
+                `💰 *New:* ${balances[chatId]} SAR`
             );
         } else if (signStr === '-') {
-            balances[chatId] = Math.round(((balances[chatId] || 0) - calculatedAmount) * 100) / 100;
+            balances[chatId] = Math.round((prevBalance - calculatedAmount) * 100) / 100;
             saveBalances();
 
-            await sendAndPinBalance(chatId, msg, 
-                `🤖 *Payment Sent*\n\n` +
-                (mathOp ? `🧮 *Calculation:* ${mathString}\n` : '') +
-                `🔻 *SAR Deducted:* ${calculatedAmount}\n` +
-                (reference ? `📝 *Ref:* ${reference}\n` : '') +
-                `━━━━━━━━━━━━━━\n` +
-                `💰 *Current Balance:* ${balances[chatId]} SAR`
+            await sendBalanceUpdate(chatId, msg, 
+                `*Prev:* ${prevBalance} SAR\n` +
+                `➖ *Deduct:* ${calculatedAmount} SAR${mathOp ? ` (${mathString})` : ''}${reference ? ` [${reference}]` : ''}\n` +
+                `💰 *New:* ${balances[chatId]} SAR`
             );
         }
     } else if (text.toLowerCase() === 'balance') {
         const currentBalance = balances[chatId] || 0;
 
-        await sendAndPinBalance(chatId, msg, 
-            `🤖 *Ledger Status*\n\n` +
-            `📊 *Total Balance:* ${currentBalance} SAR\n` +
-            `━━━━━━━━━━━━━━`
-        );
+        await sendBalanceUpdate(chatId, msg, `💰 *Total Balance:* ${currentBalance} SAR`);
     }
 });
 
