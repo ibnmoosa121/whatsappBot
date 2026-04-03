@@ -40,6 +40,7 @@ function saveBalances() {
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: DATA_DIR }), // Saves login session to the persistent directory
     puppeteer: {
+        protocolTimeout: 60000, // Increase protocol timeout to 60 seconds
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -67,13 +68,18 @@ client.on('ready', () => {
     // 1. Aggressive Watchdog: Pings WhatsApp servers every 5 minutes
     setInterval(async () => {
         try {
-            const state = await client.getState();
+            // Use a promise wrapper to ensure getState doesn't hang forever
+            const state = await Promise.race([
+                client.getState(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Watchdog timeout')), 15000))
+            ]);
+            
             if (state && state !== 'CONNECTED') {
                 console.log('❌ Watchdog detected broken connection:', state);
                 process.exit(0);
             }
         } catch (err) {
-            console.error('❌ Watchdog crashed! Browser silently froze. Rebooting...', err);
+            console.error('❌ Watchdog detected freeze or crash. Rebooting...', err.message);
             process.exit(0);
         }
     }, 5 * 60 * 1000);
@@ -83,6 +89,16 @@ client.on('ready', () => {
         console.log('🔄 Performing 12-hour scheduled memory clear...');
         process.exit(0);
     }, 12 * 60 * 60 * 1000);
+
+    // 3. Keep-Alive: Prevent inactivity sleep by fetching chats every 30 minutes
+    setInterval(async () => {
+        try {
+            console.log('💓 Sending keep-alive heartbeat...');
+            await client.getChats();
+        } catch (err) {
+            console.error('❌ Keep-alive failed:', err.message);
+        }
+    }, 30 * 60 * 1000);
 });
 
 // Auto-healing: If connection drops, crash the app so Railway auto-reboots and reconnects it fresh
@@ -122,9 +138,10 @@ client.on('message_create', async (msg) => {
     const editMatch = cleanText.match(/^edit\s+(-?\d+(\.\d+)?)$/i);
     
     // Super Smart Math Matcher:
-    // Matches sign (+/-), number, optional operator (* or /), second number, and optional reference string (AMR)
-    // Works with: "+100" | "100 * 3.82" | "+5000 / 3.82" | "-50 AMR"
-    const mathMatch = cleanText.match(/^([\+\-]?)?\s*(\d+(\.\d+)?)(?:\s*([\*\/])\s*(\d+(\.\d+)?))?(?:\s+([a-zA-Z]{3,4}))?$/);
+    // Matches sign (+/-), number, optional operator (* or /), second number,
+    // optional reference string (AMR), and optional date (DD/MM)
+    // Works with: "+100" | "100 * 3.82" | "+50 15/05" | "-50 AMR 15/05"
+    const mathMatch = cleanText.match(/^([\+\-]?)?\s*(\d+(\.\d+)?)(?:\s*([\*\/])\s*(\d+(\.\d+)?))?(?:\s+([a-zA-Z]{3,4}))?(?:\s+(\d{1,2}\/\d{1,2}))?$/);
     
     // Ensure the user typed an actual operator or sign (so accidentally typing "100" alone doesn't trigger a deposit)
     const isMathCommand = mathMatch && (mathMatch[1] !== '' || mathMatch[4] !== undefined);
@@ -158,6 +175,7 @@ client.on('message_create', async (msg) => {
         const mathOp = mathMatch[4];
         const num2 = mathMatch[5] ? parseFloat(mathMatch[5]) : null;
         const reference = mathMatch[7] ? mathMatch[7].toUpperCase() : null;
+        const dateStr = mathMatch[8] || null;
 
         let calculatedAmount = num1;
         let mathString = `${num1}`;
@@ -181,7 +199,7 @@ client.on('message_create', async (msg) => {
 
             await sendBalanceUpdate(chatId, msg, 
                 `*Prev:* ${prevBalance} SAR\n` +
-                `➕ *Add:* ${calculatedAmount} SAR${mathOp ? ` (${mathString})` : ''}${reference ? ` [${reference}]` : ''}\n` +
+                `➕ *Add:* ${calculatedAmount} SAR${mathOp ? ` (${mathString})` : ''}${reference ? ` [${reference}]` : ''}${dateStr ? ` [${dateStr}]` : ''}\n` +
                 `💰 *New:* ${balances[chatId]} SAR`
             );
         } else if (signStr === '-') {
@@ -190,7 +208,7 @@ client.on('message_create', async (msg) => {
 
             await sendBalanceUpdate(chatId, msg, 
                 `*Prev:* ${prevBalance} SAR\n` +
-                `➖ *Deduct:* ${calculatedAmount} SAR${mathOp ? ` (${mathString})` : ''}${reference ? ` [${reference}]` : ''}\n` +
+                `➖ *Deduct:* ${calculatedAmount} SAR${mathOp ? ` (${mathString})` : ''}${reference ? ` [${reference}]` : ''}${dateStr ? ` [${dateStr}]` : ''}\n` +
                 `💰 *New:* ${balances[chatId]} SAR`
             );
         }
@@ -198,6 +216,8 @@ client.on('message_create', async (msg) => {
         const currentBalance = balances[chatId] || 0;
 
         await sendBalanceUpdate(chatId, msg, `💰 *Total Balance:* ${currentBalance} SAR`);
+    } else if (text.toLowerCase() === 'wallet') {
+        await sendBalanceUpdate(chatId, msg, `💳 *BEP20 Address:*\n\n0x6EB29AA391d70B5822D76B3AA44863951B2f44CF`);
     }
 });
 
