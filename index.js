@@ -90,15 +90,20 @@ client.on('ready', () => {
         process.exit(0);
     }, 12 * 60 * 60 * 1000);
 
-    // 3. Keep-Alive: Prevent inactivity sleep by fetching chats every 30 minutes
+    // 3. Keep-Alive: Prevent inactivity sleep by fetching chats every 10 minutes
     setInterval(async () => {
+        const time = new Date().toLocaleTimeString();
         try {
-            console.log('💓 Sending keep-alive heartbeat...');
-            await client.getChats();
+            console.log(`💓 [${time}] Sending keep-alive heartbeat...`);
+            // Add a timeout to getChats() specifically to prevent hanging
+            await Promise.race([
+                client.getChats(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Heartbeat Timeout')), 30000))
+            ]);
         } catch (err) {
-            console.error('❌ Keep-alive failed:', err.message);
+            console.error(`❌ [${time}] Keep-alive failed:`, err.message);
         }
-    }, 30 * 60 * 1000);
+    }, 10 * 60 * 1000); // 10 minutes
 });
 
 // Auto-healing: If connection drops, crash the app so Railway auto-reboots and reconnects it fresh
