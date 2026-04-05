@@ -45,7 +45,9 @@ const client = new Client({
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--no-zygote',
+            '--single-process'
         ] // Memory-saving args for cloud hosting (Render/Railway Docker)
     }
 });
@@ -69,9 +71,10 @@ client.on('ready', () => {
     setInterval(async () => {
         try {
             // Use a promise wrapper to ensure getState doesn't hang forever
+            // Increased to 60 seconds (matching protocolTimeout) to give more breathing room
             const state = await Promise.race([
                 client.getState(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Watchdog timeout')), 15000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Watchdog timeout')), 60000))
             ]);
             
             if (state && state !== 'CONNECTED') {
