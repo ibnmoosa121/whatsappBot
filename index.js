@@ -84,11 +84,11 @@ client.on('ready', () => {
         }
     }, 5 * 60 * 1000);
 
-    // 2. Memory Wipe: Reboot gracefully every 12 hours exactly
+    // 2. Memory Wipe: Reboot gracefully every 6 hours exactly to prevent memory-related freezes
     setTimeout(() => {
-        console.log('🔄 Performing 12-hour scheduled memory clear...');
+        console.log('🔄 Performing 6-hour scheduled memory clear...');
         process.exit(0);
-    }, 12 * 60 * 60 * 1000);
+    }, 6 * 60 * 60 * 1000);
 
     // 3. Keep-Alive: Prevent inactivity sleep by fetching chats every 10 minutes
     setInterval(async () => {
